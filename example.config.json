@@ -1,0 +1,28 @@
+{
+  "InstanceId": "zi-testing",
+  "WorkDirectory": "/home/zi/fuzzer/working",
+  "ReportingEndpoint": "",
+  "CloudStorage": {
+    "CredentialsFile": "/home/zi/fuzzer/service-key.json",
+    "TargetPath": "gs://my-fuzzer/binaries/fuzzer",
+    "ArtifactPath": "gs://my-fuzzer/artifacts",
+    "LogPath": "gs://my-fuzzer/logs",
+    "CorpusPath": "gs://my-fuzzer/corpus",
+    "MergeLockPath": "gs://my-fuzzer/.merge"
+  },
+  "Fuzzer": {
+    "ForkCount": 64,
+    "MaxTotalTime": 3600,
+    "IncludeHostEnv": true,
+    "Arguments": [
+      "-detect_leaks=0",
+      "-use_value_profile=1"
+    ],
+    "Environment": [],
+    "UploadOnlyCrashes": true
+  },
+  "MergeTask": {
+    "Enabled": true,
+    "Interval": 86400
+  }
+}
