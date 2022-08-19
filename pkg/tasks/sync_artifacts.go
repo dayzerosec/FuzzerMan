@@ -56,6 +56,10 @@ func (task *SyncArtifactsTask) Run() error {
 	}
 	err := task.gcs.Copy(filepath.Join(task.artifactpath, prefix), remote, false)
 	if err != nil {
+		// Silence the error when there are no artifacts discovered yet.
+		if strings.Contains(err.Error(), "No URLs matched") {
+			return nil
+		}
 		return errors.New("failed to copy directory: " + err.Error())
 	}
 	return nil
