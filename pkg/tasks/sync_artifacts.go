@@ -29,12 +29,12 @@ func (task *SyncArtifactsTask) Initialize(ctx context.Context, config *config.Co
 		return errors.New("missing credentials file")
 	}
 
-	if config.CloudStorage.LogPath == "" {
-		return errors.New("missing local path")
+	if config.CloudStorage.ArtifactPath == "" {
+		return errors.New("missing cloud artifact path  path")
 	}
 
 	if !strings.HasPrefix(config.CloudStorage.ArtifactPath, "gs://") {
-		return errors.New("CloudStorage.LogPath must start with gs://")
+		return errors.New("CloudStorage.ArtifactPath must start with gs://")
 	}
 
 	if task.artifactpath, err = GetWorkDir(config.WorkDirectory, "artifacts"); err != nil {
@@ -49,7 +49,7 @@ func (task *SyncArtifactsTask) Initialize(ctx context.Context, config *config.Co
 }
 
 func (task *SyncArtifactsTask) Run() error {
-	remote := task.config.CloudStorage.LogPath
+	remote := task.config.CloudStorage.ArtifactPath
 	prefix := "*"
 	if task.config.Fuzzer.UploadOnlyCrashes {
 		prefix = "crash-*"
