@@ -37,7 +37,7 @@ func (task *FuzzTask) Initialize(ctx context.Context, config *config.Config) err
 		return errors.New("missing log path")
 	}
 	if config.CloudStorage.CorpusPath == "" {
-		return errors.New("missing log path")
+		return errors.New("missing corpus path")
 	}
 
 	if task.newCorpus, err = GetWorkDir(config.WorkDirectory, "corpus", "new"); err != nil {
@@ -93,10 +93,13 @@ func (task *FuzzTask) Run() error {
 	//    - A cron should run to minimize the cloud corpus occasionally
 	// 4. Clean up the work/corpus/new folder
 
-	log.Println("[*] Mirroring corpus")
-	if err := task.gcs.Mirror(task.config.CloudStorage.CorpusPath, task.mirrorCorpus, false); err != nil {
-		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
-	}
+	/*
+		log.Println("[*] Mirroring corpus")
+		if err := task.gcs.Mirror(task.config.CloudStorage.CorpusPath, task.mirrorCorpus, false); err != nil {
+			return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
+		}
+
+	*/
 
 	var args []string
 	args = append(args, fmt.Sprintf("-fork=%d", task.config.Fuzzer.ForkCount))
@@ -148,6 +151,7 @@ func (task *FuzzTask) Run() error {
 		}
 	}
 	_ = outfile.Close()
+	_ = cmd.Wait()
 
 	switch cmd.ProcessState.ExitCode() {
 	case 77:
