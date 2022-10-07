@@ -144,6 +144,7 @@ func (task *CorpusMergeTask) Run() error {
 	log.Println("[*] Running merge")
 	var args []string
 	args = append(args, "-merge=1")
+	args = append(args, task.config.Fuzzer.Arguments...)
 	args = append(args, tempCorpus, task.mirrorCorpus)
 	cmd := exec.CommandContext(task.context, task.targetPath, args...)
 	out, err := cmd.CombinedOutput()
