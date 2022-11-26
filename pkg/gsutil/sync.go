@@ -40,6 +40,7 @@ func (c *Client) Mirror(src, dst string, recursive bool) error {
 	//args = append(args, "-n") //dry-run
 	args = append(args, "-j", "txt,log") //enables compression
 	args = append(args, "-d")            //allows deletion
+	args = append(args, "-c")            //use checksums instead of mtime since merges screw with mtime
 	if recursive {
 		args = append(args, "-r")
 	}
