@@ -1,86 +1,39 @@
 package tasks
 
 import (
+	"FuzzerMan/pkg/cloudutil"
 	"FuzzerMan/pkg/config"
-	"FuzzerMan/pkg/gsutil"
-	"cloud.google.com/go/storage"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"gocloud.dev/blob"
+	"gocloud.dev/gcerrors"
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
 
 type CorpusMergeTask struct {
-	config       *config.Config
-	gcs          *gsutil.Client
-	context      context.Context
-	mirrorCorpus string
-	targetPath   string
+	config  *config.Config
+	cloud   *cloudutil.Client
+	context context.Context
 }
 
-func (task *CorpusMergeTask) Initialize(ctx context.Context, config *config.Config) error {
+func (task *CorpusMergeTask) Initialize(ctx context.Context, cfg *config.Config) error {
 	var err error
-	task.config = config
+	task.config = cfg
 	task.context = ctx
-
-	if config.CloudStorage.CredentialsFile == "" {
-		return errors.New("missing credentials file")
-	}
-
-	if !strings.HasPrefix(config.CloudStorage.CorpusPath, "gs://") {
-		return errors.New("cloud corpus path must start with gs://")
-	}
-
-	if task.mirrorCorpus, err = GetWorkDir(config.WorkDirectory, "corpus", "cloud"); err != nil {
-		return err
-	}
-
-	task.targetPath = filepath.Join(config.WorkDirectory, "target")
-	if info, err := os.Stat(task.targetPath); err != nil {
-		return errors.New(fmt.Sprintf("unable to stat target binary: %s", err.Error()))
-	} else {
-		// Check for executable bit to be set on any of owner/group/everyone
-		if info.Mode()&0111 == 0 {
-			return errors.New("target binary is not executable")
-		}
-	}
-
-	if task.gcs, err = gsutil.NewClient(ctx, task.config.CloudStorage.CredentialsFile); err != nil {
-		return err
-	}
+	task.cloud = cloudutil.NewClient(ctx, task.config.CloudStorage.BucketURL)
 
 	// Ensure the merge lock exists and the expected Cache-Control value
-	lockObject, err := task.gcs.Object(task.config.CloudStorage.MergeLockPath)
-	if err != nil {
-		return err
-	}
-
-	lockAttrs, err := lockObject.Attrs(task.context)
-	if err == storage.ErrObjectNotExist {
-		if err = task.gcs.WriteFile(task.config.CloudStorage.MergeLockPath, []byte("---")); err != nil {
+	lockAttrs, err := task.cloud.FileInfo(task.config.FilePath(config.MergeLockFile))
+	if (err != nil && gcerrors.Code(err) == gcerrors.NotFound) || lockAttrs.CacheControl != "no-cache" {
+		opts := &blob.WriterOptions{CacheControl: "no-cache"}
+		if err = task.cloud.WriteFile(task.config.FilePath(config.MergeLockFile), []byte("---"), opts); err != nil {
 			return errors.New(fmt.Sprintf("failed to create merge lock: %s", err.Error()))
-		}
-		// replace attrs and err vars and follow the same flow as if it always existed
-		lockAttrs, err = lockObject.Attrs(task.context)
-	}
-
-	if err != nil {
-		return err
-	}
-	if lockAttrs.CacheControl != "no-cache" {
-		_, err = lockObject.Update(task.context, storage.ObjectAttrsToUpdate{CacheControl: "no-cache"})
-		if err != nil {
-			// Seems that Google will wrongly indicate CacheControl is empty, and then realize it had the wrong value
-			// when we try to update it. Providing an Error 409 that indicates the metadata was updated by someone else
-			if !strings.Contains(err.Error(), "Error 409:") {
-				return errors.New(fmt.Sprintf("failed to update lock cache control: %s", err.Error()))
-			}
 		}
 	}
 
@@ -91,18 +44,19 @@ func (task *CorpusMergeTask) ShouldMerge() bool {
 	if !task.config.MergeTask.Enabled {
 		return false
 	}
+	lockPath := task.config.FilePath(config.MergeLockFile)
 
-	info, err := task.gcs.FileInfo(task.config.CloudStorage.MergeLockPath)
+	info, err := task.cloud.FileInfo(lockPath)
 	if err != nil {
 		return false
 	}
 
-	timeSinceMerge := time.Now().Sub(info.Updated)
+	timeSinceMerge := time.Now().Sub(info.ModTime)
 	if int(timeSinceMerge.Seconds()) > task.config.MergeTask.Interval {
-		log.Printf("[*] Attempting to grab merge lock", timeSinceMerge.Hours())
+		log.Printf("[*] Attempting to grab merge lock (last merge: %.2fh)", timeSinceMerge.Hours())
 
 		uid := uuid.New().String()
-		err := task.gcs.WriteFile(task.config.CloudStorage.MergeLockPath, []byte(uid))
+		err := task.cloud.WriteFile(lockPath, []byte(uid), &blob.WriterOptions{CacheControl: "no-cache"})
 		if err != nil {
 			return false
 		}
@@ -111,9 +65,9 @@ func (task *CorpusMergeTask) ShouldMerge() bool {
 		// anything new should see the new updated time and not even try
 		time.Sleep(time.Second * 15)
 
-		content, err := task.gcs.ReadFile(task.config.CloudStorage.MergeLockPath)
+		content, err := task.cloud.ReadFile(lockPath, nil)
 		if err != nil {
-			log.Printf("[!] Failed to read lock file to confirm: %s", err.Error())
+			log.Printf("[!] Failed to read lock file to confirm lock holder: %s", err.Error())
 			return false
 		}
 
@@ -127,16 +81,15 @@ func (task *CorpusMergeTask) Run() error {
 		return nil
 	}
 	startTime := time.Now()
+	localCorpusPath := task.config.WorkPath(config.CorpusDirectory)
+	cloudCorpusPath := task.config.CloudPath(config.CorpusDirectory)
 
 	log.Println("[*] Creating temporary corpus directory")
-	tempCorpus, err := GetWorkDir(task.config.WorkDirectory, "corpus", "temp")
-	if err != nil {
-		return err
-	}
+	tempCorpus := task.config.WorkPath(config.TempDirectory)
 	defer func() { _ = os.RemoveAll(tempCorpus) }()
 
 	log.Println("[*] Mirroring corpus")
-	if err := task.gcs.Mirror(task.config.CloudStorage.CorpusPath, task.mirrorCorpus, false); err != nil {
+	if err := task.cloud.MirrorLocal(cloudCorpusPath, localCorpusPath); err != nil {
 		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
 	}
 
@@ -145,8 +98,8 @@ func (task *CorpusMergeTask) Run() error {
 	var args []string
 	args = append(args, "-merge=1")
 	args = append(args, task.config.Fuzzer.Arguments...)
-	args = append(args, tempCorpus, task.mirrorCorpus)
-	cmd := exec.CommandContext(task.context, task.targetPath, args...)
+	args = append(args, tempCorpus, task.config.WorkPath(config.CorpusDirectory))
+	cmd := exec.CommandContext(task.context, task.config.FilePath(config.LocalFuzzerFile), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Println(string(out))
@@ -162,26 +115,27 @@ func (task *CorpusMergeTask) Run() error {
 	// Done but we don't want to lose any corpus that was added while doing the merge
 	// So lets grab all those new files since we started, and then try and copy them into tempCorpus
 	// then Mirror tempCorpus into the authoritative location
-	var newFileArgs []string
-	var newFiles []*storage.ObjectAttrs
-	newFiles, err = task.gcs.NewObjects(task.config.CloudStorage.CorpusPath, startTime)
+	var newKeys []string
+	var newObjects []*blob.ListObject
+	newObjects, err = task.cloud.NewObjects(cloudCorpusPath, startTime)
 	if err != nil {
 		return fmt.Errorf("failed to get new object list: %s", err.Error())
 	}
-	if len(newFiles) > 0 {
-		for _, attrs := range newFiles {
-			newFileArgs = append(newFileArgs, fmt.Sprintf("gs://%s/%s", attrs.Bucket, attrs.Name))
+	if len(newObjects) > 0 {
+		for _, obj := range newObjects {
+			newKeys = append(newKeys, obj.Key)
 		}
-		if err := task.gcs.CopyMulti(newFileArgs, tempCorpus, false); err != nil {
+		if err := task.cloud.Download(newKeys, tempCorpus); err != nil {
 			return fmt.Errorf("failed to copy new files into merged corpus: %s", err.Error())
 		}
 	}
-	if err := task.gcs.Mirror(tempCorpus, task.config.CloudStorage.CorpusPath, false); err != nil {
+
+	if err := task.cloud.MirrorRemote(tempCorpus, cloudCorpusPath); err != nil {
 		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
 	}
 
 	// Now we are done for real, update the lockfile again just to update the modified time
-	_ = task.gcs.WriteFile(task.config.CloudStorage.MergeLockPath, []byte("---"))
+	_ = task.cloud.WriteFile(task.config.FilePath(config.MergeLockFile), []byte("---"), &blob.WriterOptions{CacheControl: "no-cache"})
 
 	timeConsumed := time.Now().Sub(startTime)
 	if int(timeConsumed.Seconds()) > task.config.MergeTask.Interval {
