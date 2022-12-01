@@ -3,11 +3,14 @@ COPY ./cmd /app/cmd
 COPY ./pkg /app/pkg
 COPY ./go.* /app/
 WORKDIR /app
+
 RUN CGO_ENABLED=0 go build -a -installsuffix cgo -o FuzzerMan ./cmd/FuzzerMan
+RUN CGO_ENABLED=0 go build -a -installsuffix cgo -o MultiFuzzerMan ./cmd/MultiFuzzerMan
 
 FROM ubuntu:latest
 
 COPY --from=builder /app/FuzzerMan /app/FuzzerMan
+COPY --from=builder /app/MultiFuzzerMan /app/MultiFuzzerMan
 ENTRYPOINT ["/app/FuzzerMan"]
 
 ARG LLVM_VER=14

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 )
@@ -24,7 +25,11 @@ const (
 )
 
 func (c *Config) WorkPath(name DirectoryName) string {
-	return filepath.Join(c.WorkDirectory, string(name))
+	fullpath := filepath.Join(c.WorkDirectory, string(name))
+	if _, err := os.Stat(fullpath); os.IsNotExist(err) {
+		_ = os.MkdirAll(fullpath, 0770)
+	}
+	return fullpath
 }
 
 func (c *Config) CloudPath(name DirectoryName) string {

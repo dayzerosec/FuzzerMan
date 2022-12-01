@@ -7,7 +7,6 @@ import (
 	_ "gocloud.dev/blob/memblob"
 	_ "gocloud.dev/blob/s3blob"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -45,7 +44,7 @@ func (c *Client) uploadFile(b *blob.Bucket, key, localFn string) {
 		return
 	}
 
-	data, err := ioutil.ReadFile(localFn)
+	data, err := os.ReadFile(localFn)
 	if err != nil {
 		log.Printf("[!] Failed to read upload target(%s): %s", localFn, err.Error())
 		return
@@ -169,7 +168,7 @@ func (c *Client) ReadFile(key string, opts *blob.ReaderOptions) ([]byte, error) 
 	}
 	defer func() { _ = reader.Close() }()
 
-	return ioutil.ReadAll(reader)
+	return io.ReadAll(reader)
 }
 
 func (c *Client) WriteFile(key string, buf []byte, opts *blob.WriterOptions) error {
@@ -221,10 +220,10 @@ func (c *Client) NewObjects(prefix string, since time.Time) ([]*blob.ListObject,
 // MirrorLocal mirrors the remotePrefix in localFolder, this can delete files from localFolder
 // Any folders under the prefix will be flattened, and if a file already exists it is simply
 // not downloaded, there is no checksum or mtime comparison
-func (c *Client) MirrorLocal(remotePrefix, localFolder string) error {
+func (c *Client) MirrorLocal(remotePrefix, localFolder string) (int, int, error) {
 	b, err := blob.OpenBucket(c.context, c.bucket)
 	if err != nil {
-		return err
+		return -1, -1, err
 	}
 
 	// Find all the files in remote not in local
@@ -251,9 +250,9 @@ func (c *Client) MirrorLocal(remotePrefix, localFolder string) error {
 
 	// Find all files present in local but not in remote and delete identified files
 	var toDelete []string
-	files, err := ioutil.ReadDir(localFolder)
+	files, err := os.ReadDir(localFolder)
 	if err != nil {
-		return err
+		return -1, -1, err
 	}
 	for _, f := range files {
 		if !f.IsDir() {
@@ -265,33 +264,31 @@ func (c *Client) MirrorLocal(remotePrefix, localFolder string) error {
 
 	// Perform the actions...
 	if len(toDownload) > 0 {
-		log.Printf("[-] Downloading %d files", len(toDownload))
 		_ = c.Download(toDownload, localFolder)
 	}
 
 	if len(toDelete) > 0 {
-		log.Printf("[-] Deleting (local) %d files", len(toDelete))
 		for _, fn := range toDelete {
 			_ = os.Remove(filepath.Join(localFolder, fn))
 		}
 	}
 
-	return nil
+	return len(toDownload), len(toDelete), nil
 }
 
 // MirrorRemote will make the remote prefix match the local folder including deleting files from remote
-func (c *Client) MirrorRemote(localFolder, remotePrefix string) error {
+func (c *Client) MirrorRemote(localFolder, remotePrefix string) (int, int, error) {
 	b, err := blob.OpenBucket(c.context, c.bucket)
 	if err != nil {
-		return err
+		return -1, -1, err
 	}
 
 	// Find all the files in local but not in remote
 	var toUpload []string
 	localFiles := make(map[string]bool)
-	files, err := ioutil.ReadDir(localFolder)
+	files, err := os.ReadDir(localFolder)
 	if err != nil {
-		return err
+		return -1, -1, err
 	}
 	for _, f := range files {
 		if !f.IsDir() {
@@ -319,12 +316,10 @@ func (c *Client) MirrorRemote(localFolder, remotePrefix string) error {
 	}
 
 	// Perform the actions
-	log.Printf("[-] Uploading %d files", len(toUpload))
-	log.Printf("[-] Deleting (remote) %d files", len(toDelete))
 	_ = c.Upload(localFolder, toUpload, remotePrefix)
 	for _, key := range toDelete {
 		_ = b.Delete(c.context, key)
 	}
 
-	return nil
+	return len(toUpload), len(toDelete), nil
 }

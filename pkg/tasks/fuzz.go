@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -37,6 +36,7 @@ func (task *FuzzTask) Initialize(ctx context.Context, cfg *config.Config) error 
 			return errors.New("target binary is not executable")
 		}
 	}
+
 	return nil
 
 }
@@ -48,8 +48,10 @@ func (task *FuzzTask) Run() error {
 	localLogPath := task.config.WorkPath(config.LogDirectory)
 
 	// Mirror the Corpus from the authority in the cloud into the local folder
-	if err := task.cloud.MirrorLocal(cloudCorpusPath, localCorpusPath); err != nil {
+	if downloaded, deleted, err := task.cloud.MirrorLocal(cloudCorpusPath, localCorpusPath); err != nil {
 		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
+	} else {
+		log.Printf("[-] Downloaded: %d || Deleted (local): %d", downloaded, deleted)
 	}
 
 	startTime := time.Now()
@@ -238,14 +240,16 @@ func (task *FuzzTask) ReportCrash(logfilePath string) {
 
 func newFilesSince(dirname string, ts time.Time) ([]string, error) {
 	var out []string
-	files, err := ioutil.ReadDir(dirname)
+	files, err := os.ReadDir(dirname)
 	if err != nil {
 		return out, err
 	}
 
 	for _, fn := range files {
-		if fn.ModTime().After(ts) || fn.ModTime().Equal(ts) {
-			out = append(out, fn.Name())
+		if info, err := fn.Info(); err == nil {
+			if info.ModTime().After(ts) {
+				out = append(out, fn.Name())
+			}
 		}
 	}
 	return out, nil

@@ -89,8 +89,10 @@ func (task *CorpusMergeTask) Run() error {
 	defer func() { _ = os.RemoveAll(tempCorpus) }()
 
 	log.Println("[*] Mirroring corpus")
-	if err := task.cloud.MirrorLocal(cloudCorpusPath, localCorpusPath); err != nil {
+	if downloaded, deleted, err := task.cloud.MirrorLocal(cloudCorpusPath, localCorpusPath); err != nil {
 		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
+	} else {
+		log.Printf("[-] Downloaded: %d || Deleted (local): %d", downloaded, deleted)
 	}
 
 	// Run the actual merge job
@@ -130,8 +132,10 @@ func (task *CorpusMergeTask) Run() error {
 		}
 	}
 
-	if err := task.cloud.MirrorRemote(tempCorpus, cloudCorpusPath); err != nil {
+	if uploaded, deleted, err := task.cloud.MirrorRemote(tempCorpus, cloudCorpusPath); err != nil {
 		return errors.New(fmt.Sprintf("corpus mirror failed: %s", err.Error()))
+	} else {
+		log.Printf("[-] Uploaded: %d || Deleted (remote): %d", uploaded, deleted)
 	}
 
 	// Now we are done for real, update the lockfile again just to update the modified time

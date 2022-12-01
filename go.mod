@@ -1,10 +1,11 @@
 module FuzzerMan
 
-go 1.17
+go 1.18
 
 require (
 	cloud.google.com/go/storage v1.25.0
 	github.com/google/uuid v1.3.0
+	github.com/mroth/weightedrand/v2 v2.0.0
 	gocloud.dev v0.27.0
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 )
@@ -42,7 +43,7 @@ require (
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/net v0.0.0-20220802222814-0bcc04d9c69b // indirect
 	golang.org/x/oauth2 v0.0.0-20220722155238-128564f6959c // indirect
-	golang.org/x/sys v0.0.0-20220731174439-a90be440212d // indirect
+	golang.org/x/sys v0.2.0 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect
 	google.golang.org/api v0.91.0 // indirect
