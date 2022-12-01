@@ -99,6 +99,7 @@ func (c *Client) DownloadSingle(key string, localFile string) error {
 		if _, err = reader.WriteTo(fp); err != nil {
 			log.Printf("[!] failed to write: %s", err.Error())
 		}
+		_ = fp.Close()
 	}
 	_ = reader.Close()
 	return nil
@@ -126,6 +127,7 @@ func (c *Client) downloadFile(b *blob.Bucket, key, localFn string) {
 		if _, err = reader.WriteTo(fp); err != nil {
 			log.Printf("[!] failed to write: %s", err.Error())
 		}
+		_ = fp.Close()
 	}
 }
 
