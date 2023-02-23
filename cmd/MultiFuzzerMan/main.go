@@ -91,7 +91,7 @@ func runCampaignUntil(end time.Time, cfg *config.Config) error {
 
 		if err := fuzzTask.Run(); err != nil {
 			// If it got here fine, lets let it run for its full period before returning even with errors
-			log.Printf("[%s] Failed to run fuzz task: %s", err.Error())
+			log.Printf("Failed to run fuzz task: %s", err.Error())
 			time.Sleep(15 * time.Second)
 		}
 	}
